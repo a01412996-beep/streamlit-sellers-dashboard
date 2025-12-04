@@ -1,0 +1,246 @@
+import streamlit as st
+import pandas as pd
+
+from streamlit_extras.metric_cards import style_metric_cards
+
+st.markdown("""
+    <style>
+    * {
+        font-family: "Times New Roman", serif !important;
+    }
+    </style>
+""", unsafe_allow_html=True)
+
+# We load the three CSVs for filling the selectors (dynamically)
+with st.spinner("Loading dashboard...", show_time=True):
+    sku_df = pd.read_csv("./sku_df.csv")
+    tp_df = pd.read_csv("./tp_df.csv")
+    date_df = pd.read_csv("./date_df.csv")
+
+with st.sidebar:
+    st.image("logo.png", caption="")
+
+    
+    st.write("")
+    st.write("")
+    st.write("")
+
+
+    st.write("View detailed analysis and insights:")
+
+    # Open the PDF in binary mode
+    with open("Whirlpoolstreamlit.pdf", "rb") as f:
+        pdf_bytes = f.read()
+
+    # Create the download button
+    st.download_button(
+        label="Download Whirlpool PDF",
+        data=pdf_bytes,
+        file_name="Whirlpoolstreamlit.pdf",
+        mime="application/pdf"
+)
+    
+st.title("Business Sales Forcasting KPI Dashboard")
+st.write("Predictive sales dashboard powered by machine learning to support commercial and inventory decisions.")
+st.write("RMSE: 3.21, MAE: 1.02")
+st.write("KPI's")
+
+def cards(x, y, z, dev_x):
+    col1, col2, col3 = st.columns(3)
+
+    col1.metric(label="Total Sell-Out (QTY)", value="4,681,797", delta="+9%")
+    col2.metric(label="Total Gross Sales", value="13,333,895,579.64", delta="+2%")
+    col3.metric(label="Average Unit Price", value="4601", delta="+3%")
+
+    style_metric_cards()
+
+x = 123# rf.predict()
+cards(x, y=12.45, z=-12, dev_x=1)
+
+
+#grafica predictiva
+import pandas as pd
+import streamlit as st
+import altair as alt
+
+# ---------------------------------------------------------
+# PAGE CONFIG
+# ---------------------------------------------------------
+st.set_page_config(
+    page_title="QTY Forecast Dashboard",
+    layout="wide",
+)
+
+# ---------------------------------------------------------
+# LOAD DATA
+# ---------------------------------------------------------
+@st.cache_data
+def load_data():
+    df = pd.read_csv("qty_forecast_full(2).csv")
+    df["DATE"] = pd.to_datetime(df["DATE"])
+    return df
+
+df = load_data()
+
+# ---------------------------------------------------------
+# SIDEBAR FILTERS
+# ---------------------------------------------------------
+
+st.sidebar.header("Filters")
+
+# SKU filter
+all_skus = sorted(df["SKU"].dropna().unique())
+default_skus = all_skus[:3] if len(all_skus) >= 3 else all_skus
+
+selected_skus = st.sidebar.multiselect(
+    "Select SKU(s):",
+    options=all_skus,
+    default=default_skus
+)
+
+# TP filter
+all_tps = sorted(df["TP"].dropna().unique())
+selected_tps = st.sidebar.multiselect(
+    "Select Trading Partner(s):",
+    options=all_tps,
+    default=all_tps
+)
+
+# Date range filter
+min_date = df["DATE"].min().date()
+max_date = df["DATE"].max().date()
+
+start_date, end_date = st.sidebar.date_input(
+    "Date range:",
+    value=(min_date, max_date),
+    min_value=min_date,
+    max_value=max_date,
+)
+
+# Show/hide forecast
+show_forecast = st.sidebar.checkbox("Show forecast period", value=True)
+
+# ---------------------------------------------------------
+# APPLY FILTERS
+# ---------------------------------------------------------
+mask = (
+    df["SKU"].isin(selected_skus)
+    & df["TP"].isin(selected_tps)
+    & (df["DATE"].dt.date >= start_date)
+    & (df["DATE"].dt.date <= end_date)
+)
+
+filtered = df.loc[mask].copy()
+
+if not show_forecast:
+    filtered = filtered[filtered["DATA_TYPE"] == "historical"]
+
+if filtered.empty:
+    st.warning("No data available for this selection.")
+    st.stop()
+
+filtered = filtered.sort_values("DATE")
+
+# ---------------------------------------------------------
+# PREPARE DATA FOR PLOTTING
+# ---------------------------------------------------------
+plot_df = filtered[["DATE", "SKU", "TP", "QTY", "QTY_PRED", "DATA_TYPE"]].copy()
+
+# melt: one row per (DATE, Type)
+plot_df = plot_df.melt(
+    id_vars=["DATE", "SKU", "TP", "DATA_TYPE"],
+    value_vars=["QTY", "QTY_PRED"],
+    var_name="Series",
+    value_name="Quantity"
+)
+
+# remove NaNs (e.g., QTY for forecast)
+plot_df = plot_df.dropna(subset=["Quantity"])
+
+# ---------------------------------------------------------
+# CHART: HISTORICAL (solid) + FORECAST (dashed)
+# ---------------------------------------------------------
+st.subheader("Real vs Predicted / Forecasted Quantity Over Time")
+
+base = (
+    alt.Chart(plot_df)
+    .encode(
+        x=alt.X("DATE:T", title="Date"),
+        y=alt.Y("Quantity:Q", title="Quantity"),
+        color=alt.Color("Series:N", title="Series"),  # QTY vs QTY_PRED
+        tooltip=[
+            "DATE:T",
+            "SKU:N",
+            "TP:N",
+            "Series:N",
+            "Quantity:Q",
+            "DATA_TYPE:N",
+        ],
+    )
+)
+
+hist_lines = base.transform_filter(
+    alt.datum.DATA_TYPE == "historical"
+).mark_line(point=True)
+
+forecast_lines = base.transform_filter(
+    alt.datum.DATA_TYPE == "forecast"
+).mark_line(point=True, strokeDash=[5, 5])
+
+chart = (hist_lines + forecast_lines).properties(
+    width=950,
+    height=450
+)
+
+st.altair_chart(chart, use_container_width=True)
+
+
+# ---------------------------------------------------------
+# QTY PREDICTION FOR A SPECIFIC WEEK
+# ---------------------------------------------------------
+st.markdown("### QTY prediction for a specific week")
+
+# Default date: first date in the current filtered range
+default_week_date = filtered["DATE"].min().date()
+
+selected_week_date = st.date_input(
+    "Select a week (date):",
+    value=default_week_date,
+    min_value=filtered["DATE"].min().date(),
+    max_value=filtered["DATE"].max().date(),
+    key="week_date_picker",
+)
+
+if st.button("Get QTY Prediction for Selected Week"):
+    # Convert to datetime.date for comparison
+    sel_date = pd.to_datetime(selected_week_date).date()
+
+    week_df = filtered[filtered["DATE"].dt.date == sel_date].copy()
+
+    if week_df.empty:
+        st.info("There is no data for that week with the current SKU / TP filters.")
+    else:
+        # Total predicted QTY for that week (over selected SKUs & TPs)
+        total_pred = week_df["QTY_PRED"].sum()
+
+        st.metric(
+            label="Total predicted QTY for selected week (current filters)",
+            value=f"{total_pred:,.1f}",
+        )
+
+        st.markdown("*Detail by SKU and Trading Partner for that week:*")
+        st.dataframe(
+            week_df[["DATE", "SKU", "TP", "QTY", "QTY_PRED", "DATA_TYPE"]]
+            .sort_values(["SKU", "TP"])
+            .reset_index(drop=True)
+        )
+
+
+# ---------------------------------------------------------
+# TABLE
+# ---------------------------------------------------------
+st.markdown("### Filtered Dataset")
+with st.spinner("Loading sample...", show_time=True):
+    st.dataframe(
+        filtered.sort_values(["SKU", "TP", "DATE"]).reset_index(drop=True)
+    )
