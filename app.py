@@ -12,11 +12,6 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # We load the three CSVs for filling the selectors (dynamically)
-with st.spinner("Loading dashboard...", show_time=True):
-    sku_df = pd.read_csv("./sku_df.csv")
-    tp_df = pd.read_csv("./tp_df.csv")
-    date_df = pd.read_csv("./date_df.csv")
-
 with st.sidebar:
     st.image("logo.png", caption="")
 
